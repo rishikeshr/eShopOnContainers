@@ -1,3 +1,19 @@
+ARG AGENT_VERSION=1.19.0
+ARG PROFILER_VERSION=1.19.0
+
+# pull down the profiler artifact zip and unzip
+FROM alpine:latest AS zip
+ARG AGENT_VERSION
+ARG PROFILER_VERSION
+
+WORKDIR /source
+
+RUN apk add -U unzip && apk add -U curl
+RUN curl -L -o elastic_apm_profiler.zip https://github.com/elastic/apm-agent-dotnet/releases/download/v${AGENT_VERSION}/elastic_apm_profiler_${PROFILER_VERSION}.zip
+RUN unzip elastic_apm_profiler.zip
+RUN mkdir /elastic_apm_profiler && mv elastic_apm_profiler_${PROFILER_VERSION}/* /elastic_apm_profiler/
+
+
 FROM mcr.microsoft.com/dotnet/aspnet:7.0 AS base
 WORKDIR /app
 EXPOSE 80
@@ -59,6 +75,21 @@ WORKDIR /src/Services/Ordering/Ordering.FunctionalTests
 FROM build AS publish
 
 FROM base AS final
+ARG AGENT_VERSION
+ARG PROFILER_VERSION
+
 WORKDIR /app
+COPY --from=zip /elastic_apm_profiler /elastic_apm_profiler
 COPY --from=publish /app .
+
+
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENV CORECLR_ENABLE_PROFILING=1
+ENV CORECLR_PROFILER={FA65FE15-F085-4681-9B20-95E04F6C03CC}
+ENV CORECLR_PROFILER_PATH=/elastic_apm_profiler/libelastic_apm_profiler.so
+ENV ELASTIC_APM_PROFILER_HOME=/elastic_apm_profiler
+ENV ELASTIC_APM_PROFILER_INTEGRATIONS=/elastic_apm_profiler/integrations.yml
+ENV ELASTIC_APM_PROFILER_LOG_DIR=/logs
+ENV ELASTIC_APM_PROFILER_LOG=traceENV ELASTIC_APM_PROFILER_LOG=trace
+ENV ELASTIC_APM_ENVIRONMENT=DotNet
 ENTRYPOINT ["dotnet", "Ordering.API.dll"]
